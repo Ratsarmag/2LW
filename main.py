@@ -55,7 +55,7 @@ app.mount("/static", StaticFiles(directory="static"), name="static")
 class User(Base):
     __tablename__ = "users"
     id = Column(Integer, primary_key=True, index=True)
-    username = Column(String(50), unique=True, index=True)
+    username = Column(String(50), index=True)
     email = Column(String(100), unique=True, index=True)
     full_name = Column(String(100), nullable=True)
     hashed_password = Column(String(100))
@@ -77,7 +77,6 @@ class UserUpdate(BaseModel):
     email: str | None = None
     full_name: str | None = None
     password: str | None = None
-    disabled: bool | None = None
 
 
 class UserResponse(BaseModel):
@@ -85,7 +84,6 @@ class UserResponse(BaseModel):
     username: str
     email: str
     full_name: str | None = None
-    disabled: bool | None = None
 
     class Config:
         from_attributes = True
@@ -145,9 +143,14 @@ def create_user(user: UserCreate, db: Session = Depends(get_db)):
         db.commit()
         db.refresh(db_user)
         return db_user
-    except IntegrityError:
+    except IntegrityError as e:
         db.rollback()
-        raise HTTPException(status_code=400, detail="Username or Email already registered")
+        print(f"IntegrityError: {e}")
+        raise HTTPException(status_code=400, detail="Email already registered or another unique constraint violation")
+    except Exception as e:
+        db.rollback()
+        print(f"Exception: {e}")
+        raise HTTPException(status_code=500, detail="Internal Server Error")
 
 
 # Маршрут для удаления пользователя по ID
@@ -173,16 +176,19 @@ def update_user(user_id: int, user_update: UserUpdate, db: Session = Depends(get
     if user_update.full_name:
         user.full_name = user_update.full_name
     if user_update.password:
-        user.hashed_password = fake_hash_password(user_update.password)
-    if user_update.disabled is not None:
-        user.disabled = user_update.disabled
+        user.hashed_password = hash_password(user_update.password)
     try:
         db.commit()
         db.refresh(user)
         return user
-    except IntegrityError:
+    except IntegrityError as e:
         db.rollback()
+        print(f"IntegrityError: {e}")
         raise HTTPException(status_code=400, detail="Username or Email already registered")
+    except Exception as e:
+        db.rollback()
+        print(f"Exception: {e}")
+        raise HTTPException(status_code=500, detail="Internal Server Error")
 
 @app.get("/users/", response_model=list[UserResponse])
 def read_users(db: Session = Depends(get_db)):
